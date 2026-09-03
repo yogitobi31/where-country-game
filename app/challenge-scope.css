@@ -1,0 +1,194 @@
+.scope-tabs {
+  gap: 10px;
+  margin-top: 26px;
+}
+
+.scope-tabs-list {
+  display: grid;
+  width: 100%;
+  height: auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  border: 1px solid #dfe2da;
+  border-radius: 18px;
+  background: #eef1eb;
+  padding: 5px;
+}
+
+.scope-tab {
+  min-width: 0;
+  min-height: 57px;
+  justify-content: flex-start;
+  gap: 9px;
+  border-radius: 13px;
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.scope-tab[data-active] {
+  border-color: rgba(16, 36, 62, 0.08);
+  background: white;
+  box-shadow: 0 3px 10px rgba(16, 36, 62, 0.09);
+}
+
+.scope-tab-icon {
+  display: grid;
+  width: 35px;
+  height: 35px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 11px;
+  background: #dce4df;
+  color: #5f716b;
+}
+
+.scope-tab:first-child[data-active] .scope-tab-icon {
+  background: #dff5e9;
+  color: #16875a;
+}
+
+.scope-tab:last-child[data-active] .scope-tab-icon {
+  background: #e4edfb;
+  color: #376ca9;
+}
+
+.scope-tab-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.scope-tab > span:last-child {
+  min-width: 0;
+}
+
+.scope-tab strong,
+.scope-tab small {
+  display: block;
+}
+
+.scope-tab strong {
+  color: #203448;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.scope-tab small {
+  overflow: hidden;
+  margin-top: 2px;
+  color: #7b878d;
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-panel {
+  margin: 0;
+}
+
+.scope-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  border-radius: 15px;
+  padding: 9px 11px;
+}
+
+.scope-summary.is-major {
+  background: #e8f7ef;
+}
+
+.scope-summary.is-all {
+  background: #edf2fa;
+}
+
+.scope-summary > span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: white;
+  padding: 5px 8px;
+  color: #17734e;
+  font-size: 9px;
+  font-weight: 900;
+  box-shadow: 0 1px 3px rgba(16, 36, 62, 0.07);
+}
+
+.scope-summary.is-all > span {
+  color: #376ca9;
+}
+
+.scope-summary strong,
+.scope-summary small {
+  display: block;
+}
+
+.scope-summary strong {
+  color: #2b4350;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.scope-summary small {
+  margin-top: 3px;
+  color: #718087;
+  font-size: 9px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.scope-panel .mode-list {
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.scope-panel .mode-card {
+  min-height: 61px;
+}
+
+.continent-picker button em {
+  color: #9aa29f;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.continent-picker button.is-active em {
+  color: #b9cede;
+}
+
+@media (max-width: 600px) {
+  .scope-tabs {
+    margin-top: 18px;
+  }
+
+  .scope-tab {
+    min-height: 50px;
+    gap: 7px;
+    padding: 6px 7px;
+  }
+
+  .scope-tab-icon {
+    width: 31px;
+    height: 31px;
+    border-radius: 9px;
+  }
+
+  .scope-tab strong {
+    font-size: 12px;
+  }
+
+  .scope-summary {
+    min-height: 52px;
+    padding: 8px 9px;
+  }
+
+  .scope-summary > span {
+    padding: 4px 6px;
+    font-size: 8px;
+  }
+
+  .scope-panel .mode-card {
+    min-height: 58px;
+  }
+}

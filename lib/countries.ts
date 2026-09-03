@@ -44,6 +44,26 @@ export const sovereignByContinent: Record<ContinentCode, string[]> = {
   OC: ['AU', 'FJ', 'KI', 'MH', 'FM', 'NR', 'NZ', 'PW', 'PG', 'WS', 'SB', 'TO', 'TV', 'VU'],
 };
 
+export const majorCountriesByContinent: Record<ContinentCode, string[]> = {
+  AF: [
+    'DZ', 'AO', 'CD', 'EG', 'ET', 'GH', 'KE', 'LY', 'MG', 'MA', 'MZ', 'NA', 'NG',
+    'SD', 'ZA', 'TZ', 'ZM', 'ZW',
+  ],
+  AS: [
+    'AF', 'SA', 'BD', 'KH', 'CN', 'IN', 'ID', 'IR', 'IQ', 'IL', 'JP', 'KZ', 'KP',
+    'KR', 'MY', 'MN', 'MM', 'NP', 'PK', 'PH', 'QA', 'SG', 'TW', 'TH', 'TR', 'AE',
+    'UZ', 'VN',
+  ],
+  EU: [
+    'AT', 'BE', 'CZ', 'DK', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'NL', 'NO',
+    'PL', 'PT', 'RO', 'RU', 'ES', 'SE', 'CH', 'UA', 'GB',
+  ],
+  NA: ['US', 'CA', 'MX', 'CU', 'HT', 'DO', 'GT', 'CR', 'PA', 'JM', 'NI', 'HN'],
+  SA: ['AR', 'BO', 'BR', 'CL', 'CO', 'EC', 'PY', 'PE', 'UY', 'VE'],
+  OC: ['AU', 'NZ', 'PG', 'FJ', 'SB', 'VU', 'WS', 'TO', 'KI', 'TV'],
+};
+
+export const majorCountryCodes = Object.values(majorCountriesByContinent).flat();
 export const allCountryCodes = Object.values(sovereignByContinent).flat();
 
 export const microCountryCodes = new Set([

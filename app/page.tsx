@@ -43,11 +43,14 @@ import {
   getCountryFact,
   getCountryFlag,
   getCountryName,
+  majorCountriesByContinent,
+  majorCountryCodes,
   microCountryCodes,
   shuffle,
   sovereignByContinent,
   type ContinentCode,
 } from '@/lib/countries';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 type MapData = {
   viewBox: string;
@@ -55,6 +58,7 @@ type MapData = {
 };
 
 type GameMode = 'world' | 'continent' | 'review';
+type ChallengeScope = 'major' | 'all';
 type Screen = 'home' | 'game' | 'result';
 type Feedback = 'idle' | 'wrong' | 'correct';
 
@@ -93,6 +97,8 @@ const mapHotspotCountryCodes = new Set([
   'CV', 'KM', 'KI', 'MV', 'MH', 'FM', 'MU', 'NR', 'PW', 'WS', 'SC', 'ST', 'TO',
   'TV',
 ]);
+const majorCountryCodeSet = new Set(majorCountryCodes);
+const allCountryCodeSet = new Set(allCountryCodes);
 
 const initialStats: PlayerStats = {
   totalCorrect: 0,
@@ -105,6 +111,112 @@ function waitForPaint() {
   return new Promise<void>((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
   });
+}
+
+function ModeOptions({
+  scope,
+  countryCount,
+  reviewCount,
+  selectedMode,
+  selectedContinent,
+  onModeChange,
+  onContinentChange,
+}: {
+  scope: ChallengeScope;
+  countryCount: number;
+  reviewCount: number;
+  selectedMode: GameMode;
+  selectedContinent: ContinentCode;
+  onModeChange: (mode: GameMode) => void;
+  onContinentChange: (continent: ContinentCode) => void;
+}) {
+  const isMajor = scope === 'major';
+
+  return (
+    <>
+      <div className={`scope-summary ${isMajor ? 'is-major' : 'is-all'}`}>
+        <span>{isMajor ? '교과 핵심' : '초고수'} · {countryCount}개국</span>
+        <div>
+          <strong>{isMajor ? '고등학교 세계지리 기본 코스' : '전 세계 올클리어 코스'}</strong>
+          <small>
+            {isMajor
+              ? '지역·자원·산업·인구 단원에서 자주 만나는 나라'
+              : '작은 섬나라와 생소한 국가까지 빠짐없이 도전'}
+          </small>
+        </div>
+      </div>
+
+      <div className="mode-list" aria-label={`${isMajor ? '주요 나라' : '전 세계'} 도전 방식 선택`}>
+        <button
+          type="button"
+          aria-pressed={selectedMode === 'world'}
+          onClick={() => onModeChange('world')}
+          className={`mode-card ${selectedMode === 'world' ? 'is-selected' : ''}`}
+        >
+          <span className="mode-icon mode-icon-world"><Globe2 /></span>
+          <span className="min-w-0 flex-1">
+            <strong>세계 도전</strong>
+            <small>{countryCount}개 나라에서 랜덤 출제</small>
+          </span>
+          <span className="radio-dot"><Check /></span>
+        </button>
+
+        <button
+          type="button"
+          aria-pressed={selectedMode === 'continent'}
+          onClick={() => onModeChange('continent')}
+          className={`mode-card ${selectedMode === 'continent' ? 'is-selected' : ''}`}
+        >
+          <span className="mode-icon mode-icon-continent"><MapIcon /></span>
+          <span className="min-w-0 flex-1">
+            <strong>대륙별 학습</strong>
+            <small>한 지역을 집중해서 차근차근</small>
+          </span>
+          <span className="radio-dot"><Check /></span>
+        </button>
+
+        <button
+          type="button"
+          aria-pressed={selectedMode === 'review'}
+          onClick={() => onModeChange('review')}
+          className={`mode-card ${selectedMode === 'review' ? 'is-selected' : ''}`}
+        >
+          <span className="mode-icon mode-icon-review"><RotateCcw /></span>
+          <span className="min-w-0 flex-1">
+            <strong>오답 복습</strong>
+            <small>{reviewCount ? `${reviewCount}개 나라가 기다리고 있어요` : '이 범위에서 틀린 나라가 모여요'}</small>
+          </span>
+          <span className="radio-dot"><Check /></span>
+        </button>
+      </div>
+
+      {selectedMode === 'continent' && (
+        <div className="continent-picker">
+          <p>어디부터 탐험할까요?</p>
+          <div>
+            {continentOptions.map((continent) => {
+              const count = isMajor
+                ? majorCountriesByContinent[continent.code].length
+                : sovereignByContinent[continent.code].length;
+              return (
+                <button
+                  key={continent.code}
+                  type="button"
+                  onClick={() => onContinentChange(continent.code)}
+                  aria-pressed={selectedContinent === continent.code}
+                  className={selectedContinent === continent.code ? 'is-active' : ''}
+                >
+                  <span style={{ background: continent.color }} />
+                  {continent.shortName}
+                  <em>{count}</em>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function MapBoard({
@@ -396,6 +508,7 @@ function MapBoard({
 export default function Home() {
   const [worldMap, setWorldMap] = useState<MapData | null>(null);
   const [screen, setScreen] = useState<Screen>('home');
+  const [selectedScope, setSelectedScope] = useState<ChallengeScope>('major');
   const [selectedMode, setSelectedMode] = useState<GameMode>('world');
   const [selectedContinent, setSelectedContinent] = useState<ContinentCode>('AS');
   const [questions, setQuestions] = useState<string[]>([]);
@@ -418,7 +531,11 @@ export default function Home() {
   const audioContext = useRef<AudioContext | null>(null);
 
   const targetCode = questions[questionIndex];
-  const reviewCount = Object.values(stats.review).filter((count) => count > 0).length;
+  const allReviewCount = Object.values(stats.review).filter((count) => count > 0).length;
+  const majorReviewCount = Object.entries(stats.review)
+    .filter(([code, count]) => count > 0 && majorCountryCodeSet.has(code))
+    .length;
+  const reviewCount = selectedScope === 'major' ? majorReviewCount : allReviewCount;
   const selectedContinentInfo = continentOptions.find((item) => item.code === selectedContinent)!;
   const targetContinent = targetCode
     ? continentOptions.find((item) => item.code === getCountryContinent(targetCode))
@@ -496,22 +613,31 @@ export default function Home() {
   }
 
   const startGame = useCallback(
-    (mode: GameMode = selectedMode, continent: ContinentCode = selectedContinent) => {
+    (
+      mode: GameMode = selectedMode,
+      continent: ContinentCode = selectedContinent,
+      scope: ChallengeScope = selectedScope,
+    ) => {
       const mapIds = new Set(worldMap?.locations.map((location) => location.id.toUpperCase()) ?? allCountryCodes);
+      const scopeCountries = scope === 'major' ? majorCountryCodes : allCountryCodes;
+      const scopeCountrySet = scope === 'major' ? majorCountryCodeSet : allCountryCodeSet;
       let pool: string[];
       if (mode === 'continent') {
-        pool = sovereignByContinent[continent];
+        pool = sovereignByContinent[continent].filter((code) => scopeCountrySet.has(code));
       } else if (mode === 'review') {
         pool = Object.entries(stats.review)
-          .filter(([, count]) => count > 0)
+          .filter(([code, count]) => count > 0 && scopeCountrySet.has(code))
           .sort((a, b) => b[1] - a[1])
           .map(([code]) => code);
-        if (pool.length < 3) pool = [...new Set([...pool, ...starterCountries])];
+        if (pool.length < 3) {
+          pool = [...new Set([...pool, ...starterCountries.filter((code) => scopeCountrySet.has(code))])];
+        }
       } else {
-        pool = allCountryCodes;
+        pool = scopeCountries;
       }
 
       const prepared = shuffle(pool.filter((code) => mapIds.has(code))).slice(0, QUESTION_COUNT);
+      setSelectedScope(scope);
       setSelectedMode(mode);
       setSelectedContinent(continent);
       setQuestions(prepared);
@@ -530,7 +656,7 @@ export default function Home() {
       setZoom(1);
       setScreen('game');
     },
-    [selectedMode, selectedContinent, stats.review, worldMap],
+    [selectedMode, selectedContinent, selectedScope, stats.review, worldMap],
   );
 
   useEffect(() => {
@@ -538,6 +664,7 @@ export default function Home() {
     if (!context?.registerTool) return;
     const lifecycle = new AbortController();
     const modes: GameMode[] = ['world', 'continent', 'review'];
+    const scopes: ChallengeScope[] = ['major', 'all'];
     const continents = continentOptions.map((item) => item.code);
 
     const register = async () => {
@@ -550,6 +677,7 @@ export default function Home() {
             type: 'object',
             properties: {
               mode: { type: 'string', enum: modes },
+              scope: { type: 'string', enum: scopes },
               continent: { type: 'string', enum: continents },
             },
             required: ['mode'],
@@ -557,14 +685,20 @@ export default function Home() {
           },
           annotations: { readOnlyHint: false, untrustedContentHint: false },
           async execute(input) {
-            const value = input as { mode?: GameMode; continent?: ContinentCode };
+            const value = input as {
+              mode?: GameMode;
+              scope?: ChallengeScope;
+              continent?: ContinentCode;
+            };
             if (!value || !value.mode || !modes.includes(value.mode)) throw new Error('지원하지 않는 게임 모드입니다.');
+            if (value.scope && !scopes.includes(value.scope)) throw new Error('지원하지 않는 나라 범위입니다.');
             if (value.mode === 'continent' && (!value.continent || !continents.includes(value.continent))) {
               throw new Error('대륙 모드에는 올바른 continent 값이 필요합니다.');
             }
-            startGame(value.mode, value.continent ?? selectedContinent);
+            const scope = value.scope ?? 'major';
+            startGame(value.mode, value.continent ?? selectedContinent, scope);
             await waitForPaint();
-            return { status: 'started', mode: value.mode, questionCount: QUESTION_COUNT };
+            return { status: 'started', mode: value.mode, scope, questionCount: QUESTION_COUNT };
           },
         },
         { signal: lifecycle.signal },
@@ -657,11 +791,12 @@ export default function Home() {
     setZoom(1);
   }
 
+  const scopeLabel = selectedScope === 'major' ? '주요 나라' : '전 세계';
   const modeLabel = selectedMode === 'world'
-    ? '세계 도전'
+    ? `${scopeLabel} · 세계 도전`
     : selectedMode === 'review'
-      ? '오답 복습'
-      : `${selectedContinentInfo.name} 집중`;
+      ? `${scopeLabel} · 오답 복습`
+      : `${scopeLabel} · ${selectedContinentInfo.name}`;
   const accuracy = totalAttempts ? Math.round((questions.length / totalAttempts) * 100) : 0;
 
   return (
@@ -716,71 +851,53 @@ export default function Home() {
               <h1 className="home-title">지도 한 번 눌렀을 뿐인데,<br /><span>나라 위치가 기억나요.</span></h1>
               <p className="home-copy">나라 이름을 보고 지도에서 찾는 10문제 챌린지! 틀린 나라는 다음에 다시 만나 자연스럽게 외워져요.</p>
 
-              <div className="mode-list" aria-label="게임 모드 선택">
-                <button
-                  type="button"
-                  aria-pressed={selectedMode === 'world'}
-                  onClick={() => setSelectedMode('world')}
-                  className={`mode-card ${selectedMode === 'world' ? 'is-selected' : ''}`}
-                >
-                  <span className="mode-icon mode-icon-world"><Globe2 /></span>
-                  <span className="min-w-0 flex-1">
-                    <strong>세계 도전</strong>
-                    <small>{allCountryCodes.length}개 나라에서 랜덤 출제</small>
-                  </span>
-                  <span className="radio-dot"><Check /></span>
-                </button>
+              <Tabs
+                value={selectedScope}
+                onValueChange={(value) => setSelectedScope(value as ChallengeScope)}
+                className="scope-tabs"
+              >
+                <TabsList className="scope-tabs-list" aria-label="도전할 나라 범위">
+                  <TabsTrigger value="major" className="scope-tab">
+                    <span className="scope-tab-icon"><GraduationCap /></span>
+                    <span><strong>주요 나라</strong><small>고등학교 세계지리</small></span>
+                  </TabsTrigger>
+                  <TabsTrigger value="all" className="scope-tab">
+                    <span className="scope-tab-icon"><Globe2 /></span>
+                    <span><strong>전 세계</strong><small>초고수 · 지리 덕후</small></span>
+                  </TabsTrigger>
+                </TabsList>
 
-                <button
-                  type="button"
-                  aria-pressed={selectedMode === 'continent'}
-                  onClick={() => setSelectedMode('continent')}
-                  className={`mode-card ${selectedMode === 'continent' ? 'is-selected' : ''}`}
-                >
-                  <span className="mode-icon mode-icon-continent"><MapIcon /></span>
-                  <span className="min-w-0 flex-1">
-                    <strong>대륙별 학습</strong>
-                    <small>한 지역을 집중해서 차근차근</small>
-                  </span>
-                  <span className="radio-dot"><Check /></span>
-                </button>
+                <TabsContent value="major" className="scope-panel">
+                  <ModeOptions
+                    scope="major"
+                    countryCount={majorCountryCodes.length}
+                    reviewCount={majorReviewCount}
+                    selectedMode={selectedMode}
+                    selectedContinent={selectedContinent}
+                    onModeChange={setSelectedMode}
+                    onContinentChange={setSelectedContinent}
+                  />
+                </TabsContent>
 
-                <button
-                  type="button"
-                  aria-pressed={selectedMode === 'review'}
-                  onClick={() => setSelectedMode('review')}
-                  className={`mode-card ${selectedMode === 'review' ? 'is-selected' : ''}`}
-                >
-                  <span className="mode-icon mode-icon-review"><RotateCcw /></span>
-                  <span className="min-w-0 flex-1">
-                    <strong>오답 복습</strong>
-                    <small>{reviewCount ? `${reviewCount}개 나라가 기다리고 있어요` : '틀린 나라가 자동으로 모여요'}</small>
-                  </span>
-                  <span className="radio-dot"><Check /></span>
-                </button>
-              </div>
-
-              {selectedMode === 'continent' && (
-                <div className="continent-picker">
-                  <p>어디부터 탐험할까요?</p>
-                  <div>
-                    {continentOptions.map((continent) => (
-                      <button
-                        key={continent.code}
-                        type="button"
-                        onClick={() => setSelectedContinent(continent.code)}
-                        aria-pressed={selectedContinent === continent.code}
-                        className={selectedContinent === continent.code ? 'is-active' : ''}
-                      >
-                        <span style={{ background: continent.color }} />{continent.shortName}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+                <TabsContent value="all" className="scope-panel">
+                  <ModeOptions
+                    scope="all"
+                    countryCount={allCountryCodes.length}
+                    reviewCount={allReviewCount}
+                    selectedMode={selectedMode}
+                    selectedContinent={selectedContinent}
+                    onModeChange={setSelectedMode}
+                    onContinentChange={setSelectedContinent}
+                  />
+                </TabsContent>
+              </Tabs>
 
               <button type="button" onClick={() => startGame()} disabled={!worldMap} className="start-button">
-                <span>{worldMap ? '탐험 시작하기' : '지도 준비 중…'}</span>
+                <span>
+                  {worldMap
+                    ? `${selectedScope === 'major' ? '주요 나라' : '전 세계'} 탐험 시작하기`
+                    : '지도 준비 중…'}
+                </span>
                 <ChevronRight className="size-5" />
               </button>
 
@@ -923,7 +1040,7 @@ export default function Home() {
           <div className="confetti confetti-a" /><div className="confetti confetti-b" /><div className="confetti confetti-c" />
           <div className="result-card">
             <div className="result-trophy"><Trophy /></div>
-            <p className="result-kicker">10개 나라 탐험 완료!</p>
+            <p className="result-kicker">{questions.length}개 나라 탐험 완료!</p>
             <h1>{firstTryCount >= 8 ? '세계지도 에이스!' : firstTryCount >= 5 ? '멋진 탐험이었어요!' : '한 바퀴 더 돌면 완벽해요!'}</h1>
             <p className="result-sub">오늘의 지도 감각이 한 단계 올라갔어요.</p>
 
@@ -947,7 +1064,13 @@ export default function Home() {
             )}
 
             <div className="result-actions">
-              <button type="button" onClick={() => startGame(selectedMode, selectedContinent)} className="again-button"><RotateCcw /> 한 판 더</button>
+              <button
+                type="button"
+                onClick={() => startGame(selectedMode, selectedContinent, selectedScope)}
+                className="again-button"
+              >
+                <RotateCcw /> 같은 코스로 한 판 더
+              </button>
               <button type="button" onClick={goHome} className="home-button">모드 선택으로</button>
             </div>
           </div>
