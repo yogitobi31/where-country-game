@@ -457,24 +457,6 @@ button:focus-visible,
   outline: none;
 }
 
-.country-hitbox {
-  cursor: pointer;
-  fill: none;
-  stroke: rgba(16, 36, 62, 0.001);
-  stroke-width: 30;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-  pointer-events: stroke;
-}
-
-.map-country.is-map-hotspot {
-  stroke: #536d73;
-  stroke-width: 2.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 .map-country.is-territory {
   cursor: default;
   fill: #ecede5;
@@ -487,8 +469,7 @@ button:focus-visible,
 .map-country.is-preview:nth-child(4n) { fill: #ff9e86; }
 
 .game-map-card .map-country:not(.is-territory):hover,
-.game-map-card .map-country:not(.is-territory):focus-visible,
-.game-map-card .country-hitbox:hover + .map-country {
+.game-map-card .map-country:not(.is-territory):focus-visible {
   fill: #ffcf4a;
   filter: drop-shadow(0 2px 2px rgba(16, 36, 62, 0.2));
 }
@@ -530,10 +511,6 @@ button:focus-visible,
   stroke: #9b7000;
   stroke-width: 2.3;
   animation: hint-glow 900ms ease-in-out infinite alternate;
-}
-
-.map-country.is-map-hotspot.is-hint:not(.is-correct) {
-  stroke-width: 7;
 }
 
 .ocean-label {
@@ -1032,7 +1009,6 @@ button:focus-visible,
   .game-map-wrap { min-height: 0; padding: 48px 6px 7px; }
   .game-map-card { height: 100%; min-height: 0; padding: 5px; border-radius: 18px; }
   .game-map-card .map-scroll { height: 100%; max-height: none; }
-  .country-hitbox { stroke-width: 44; }
   .micro-tip { top: 8px; width: max-content; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .map-toolbar { top: 7px; right: 7px; }
   .exit-game { top: 7px; left: 7px; }
