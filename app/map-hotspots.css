@@ -2,11 +2,15 @@
   cursor: pointer;
   fill: none;
   stroke: rgba(16, 36, 62, 0.001);
-  stroke-width: 30;
+  stroke-width: 24;
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
   pointer-events: stroke;
+}
+
+.country-hitbox.is-remote-hotspot {
+  stroke-width: 34;
 }
 
 .map-country.is-map-hotspot {
@@ -27,6 +31,10 @@
 
 @media (max-width: 600px) {
   .country-hitbox {
+    stroke-width: 32;
+  }
+
+  .country-hitbox.is-remote-hotspot {
     stroke-width: 44;
   }
 }

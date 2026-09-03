@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import './map-hotspots.css';
 import './challenge-scope.css';
+import './map-navigation.css';
 
 export const metadata: Metadata = {
   metadataBase: new URL(

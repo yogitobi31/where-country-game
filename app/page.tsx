@@ -5,6 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -22,6 +23,7 @@ import {
   Lightbulb,
   Map as MapIcon,
   MapPinned,
+  Maximize2,
   Minus,
   Plus,
   RotateCcw,
@@ -92,6 +94,9 @@ type ModelContext = {
 
 const STORAGE_KEY = 'where-country-progress-v1';
 const QUESTION_COUNT = 10;
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 8;
+const ZOOM_STEP = 0.5;
 const starterCountries = ['KR', 'JP', 'CN', 'IN', 'US', 'CA', 'BR', 'FR', 'GB', 'DE', 'IT', 'ES', 'EG', 'ZA', 'AU', 'NZ'];
 const mapHotspotCountryCodes = new Set([
   'CV', 'KM', 'KI', 'MV', 'MH', 'FM', 'MU', 'NR', 'PW', 'WS', 'SC', 'ST', 'TO',
@@ -226,6 +231,7 @@ function MapBoard({
   feedback,
   hintLevel,
   hintContinent,
+  focusContinent,
   zoom,
   playable,
   onZoomChange,
@@ -237,19 +243,73 @@ function MapBoard({
   feedback?: Feedback;
   hintLevel?: number;
   hintContinent?: ContinentCode;
+  focusContinent?: ContinentCode;
   zoom: number;
   playable: boolean;
   onZoomChange?: (zoom: number) => void;
   onSelect?: (code: string) => void;
 }) {
   const countrySet = useMemo(() => new Set(allCountryCodes), []);
+  const visibleLocations = focusContinent
+    ? (map?.locations.filter((location) => {
+        const code = location.id.toUpperCase();
+        return countrySet.has(code) && getCountryContinent(code) === focusContinent;
+      }) ?? [])
+    : (map?.locations ?? []);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const zoomRef = useRef(zoom);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const dragRef = useRef({ startX: 0, startY: 0, lastX: 0, lastY: 0, moved: false });
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
   const suppressClickRef = useRef(false);
   const [isPanning, setIsPanning] = useState(false);
+
+  useLayoutEffect(() => {
+    const defaultViewBox = map?.viewBox ?? '0 0 1010 666';
+    const svg = svgRef.current;
+    if (!svg) return;
+    if (!focusContinent) {
+      svg.setAttribute('viewBox', defaultViewBox);
+      return;
+    }
+
+    const countries = svg.querySelectorAll<SVGGraphicsElement>('.map-country');
+    if (!countries.length) {
+      svg.setAttribute('viewBox', defaultViewBox);
+      return;
+    }
+    const countriesForBounds = Array.from(countries).filter(
+      (country) => !(focusContinent === 'EU' && country.dataset.countryCode === 'RU'),
+    );
+
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    countriesForBounds.forEach((country) => {
+      const box = country.getBBox();
+      minX = Math.min(minX, box.x);
+      minY = Math.min(minY, box.y);
+      maxX = Math.max(maxX, box.x + box.width);
+      maxY = Math.max(maxY, box.y + box.height);
+    });
+
+    const width = maxX - minX;
+    const height = maxY - minY;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
+
+    const paddingX = Math.max(width * 0.08, 8);
+    const paddingY = Math.max(height * 0.08, 8);
+    const nextViewBox = [
+      minX - paddingX,
+      minY - paddingY,
+      width + paddingX * 2,
+      height + paddingY * 2,
+    ].map((value) => value.toFixed(2)).join(' ');
+    svg.setAttribute('viewBox', nextViewBox);
+  }, [focusContinent, map]);
 
   useEffect(() => {
     const scroll = scrollRef.current;
@@ -272,7 +332,7 @@ function MapBoard({
 
   const zoomAtPoint = useCallback((nextValue: number, clientX: number, clientY: number) => {
     const scroll = scrollRef.current;
-    const nextZoom = Math.min(4, Math.max(1, nextValue));
+    const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextValue));
     const previousZoom = zoomRef.current;
     if (!scroll || !onZoomChange || Math.abs(nextZoom - previousZoom) < 0.01) return;
 
@@ -315,23 +375,27 @@ function MapBoard({
     if (!country || !svg) return;
 
     const box = country.getBBox();
-    const focusZoom = mapHotspotCountryCodes.has(targetCode)
-      ? 4
-      : Math.max(2.4, zoomRef.current);
+    const isTinyTarget = mapHotspotCountryCodes.has(targetCode) || microCountryCodes.has(targetCode);
+    const focusZoom = isTinyTarget
+      ? 6
+      : Math.max(3, zoomRef.current);
     zoomRef.current = focusZoom;
     onZoomChange(focusZoom);
 
     let secondFrame = 0;
     const firstFrame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
-        const viewBox = svg.viewBox.baseVal;
-        const scale = svg.clientWidth / viewBox.width;
-        const centerX = (box.x + box.width / 2 - viewBox.x) * scale;
-        const centerY = (box.y + box.height / 2 - viewBox.y) * scale;
+        const matrix = svg.getScreenCTM();
+        if (!matrix) return;
+        const center = svg.createSVGPoint();
+        center.x = box.x + box.width / 2;
+        center.y = box.y + box.height / 2;
+        const renderedCenter = center.matrixTransform(matrix);
+        const scrollBounds = scroll.getBoundingClientRect();
         const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         scroll.scrollTo({
-          left: centerX - scroll.clientWidth / 2,
-          top: centerY - scroll.clientHeight / 2,
+          left: scroll.scrollLeft + renderedCenter.x - scrollBounds.left - scroll.clientWidth / 2,
+          top: scroll.scrollTop + renderedCenter.y - scrollBounds.top - scroll.clientHeight / 2,
           behavior: prefersReducedMotion ? 'auto' : 'smooth',
         });
       });
@@ -437,7 +501,7 @@ function MapBoard({
   return (
     <div
       ref={scrollRef}
-      className={`map-scroll ${playable ? 'is-interactive' : ''} ${isPanning ? 'is-panning' : ''} ${hintContinent ? 'has-continent-hint' : ''}`}
+      className={`map-scroll ${playable ? 'is-interactive' : ''} ${isPanning ? 'is-panning' : ''} ${hintContinent ? 'has-continent-hint' : ''} ${focusContinent ? 'is-continent-view' : ''}`}
       aria-busy={!map}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -452,18 +516,28 @@ function MapBoard({
         </div>
       )}
       <svg
+        ref={svgRef}
         viewBox={map?.viewBox ?? '0 0 1010 666'}
-        aria-label={playable ? '나라를 선택할 수 있는 세계지도' : '세계지도 미리보기'}
+        preserveAspectRatio="xMidYMid meet"
+        aria-label={
+          focusContinent
+            ? `${continentOptions.find((item) => item.code === focusContinent)?.name ?? '선택한 대륙'} 전용 지도`
+            : playable ? '나라를 선택할 수 있는 세계지도' : '세계지도 미리보기'
+        }
         className="world-map"
-        style={{ width: `${zoom * 100}%` }}
+        style={{
+          width: `${zoom * 100}%`,
+          height: focusContinent ? `${zoom * 100}%` : undefined,
+        }}
       >
-        {map?.locations.map((location, index) => {
+        {visibleLocations.map((location, index) => {
           const code = location.id.toUpperCase();
           const isCorrect = feedback === 'correct' && code === targetCode;
           const isWrong = feedback === 'wrong' && code === lastGuess;
           const isHint = hintLevel === 2 && code === targetCode;
           const isGameCountry = countrySet.has(code);
-          const isMapHotspot = mapHotspotCountryCodes.has(code);
+          const isRemoteHotspot = mapHotspotCountryCodes.has(code);
+          const isMapHotspot = isRemoteHotspot || microCountryCodes.has(code);
           const isContinentHint = Boolean(
             hintContinent && isGameCountry && getCountryContinent(code) === hintContinent,
           );
@@ -475,7 +549,7 @@ function MapBoard({
                 <path
                   d={location.path}
                   aria-hidden="true"
-                  className="country-hitbox"
+                  className={`country-hitbox ${isRemoteHotspot ? 'is-remote-hotspot' : ''}`}
                   onClick={() => selectCountry(code)}
                 />
               )}
@@ -998,18 +1072,45 @@ export default function Home() {
             </div>
           </aside>
 
-          <div className="game-map-wrap">
+          <div className={`game-map-wrap ${selectedMode === 'continent' ? 'is-continent-mode' : ''}`}>
             <div className="map-grid absolute inset-0 opacity-35" />
             <span className="ocean-label left-[7%] top-[26%]">태 평 양</span>
             <span className="ocean-label left-[45%] top-[44%]">대 서 양</span>
             <span className="ocean-label right-[8%] top-[28%]">태 평 양</span>
             <div className="map-toolbar">
-              <button type="button" onClick={() => setZoom((current) => Math.min(4, current + 0.4))} aria-label="지도 확대"><Plus /></button>
+              <button
+                type="button"
+                onClick={() => setZoom((current) => Math.max(MIN_ZOOM, current - ZOOM_STEP))}
+                aria-label="지도 축소"
+                disabled={zoom <= MIN_ZOOM}
+              >
+                <Minus />
+              </button>
               <span>{Math.round(zoom * 100)}%</span>
-              <button type="button" onClick={() => setZoom((current) => Math.max(1, current - 0.4))} aria-label="지도 축소"><Minus /></button>
+              <button
+                type="button"
+                onClick={() => setZoom((current) => Math.min(MAX_ZOOM, current + ZOOM_STEP))}
+                aria-label="지도 확대"
+                disabled={zoom >= MAX_ZOOM}
+              >
+                <Plus />
+              </button>
+              <button
+                type="button"
+                onClick={() => setZoom(MIN_ZOOM)}
+                aria-label={selectedMode === 'continent' ? '대륙 전체에 맞추기' : '세계지도 전체에 맞추기'}
+                className="map-fit-button"
+              >
+                <Maximize2 />
+              </button>
             </div>
             <button type="button" onClick={goHome} className="exit-game"><ArrowLeft /> 모드 바꾸기</button>
             <div className="game-map-card">
+              {selectedMode === 'continent' && (
+                <div className="continent-view-badge">
+                  <MapIcon /> {selectedContinentInfo.name}만 표시 중
+                </div>
+              )}
               <MapBoard
                 map={worldMap}
                 targetCode={targetCode}
@@ -1017,6 +1118,7 @@ export default function Home() {
                 feedback={feedback}
                 hintLevel={hintLevel}
                 hintContinent={hintLevel >= 1 ? targetContinent?.code : undefined}
+                focusContinent={selectedMode === 'continent' ? selectedContinent : undefined}
                 zoom={zoom}
                 playable
                 onZoomChange={setZoom}
@@ -1026,8 +1128,8 @@ export default function Home() {
                 <div className="micro-tip"><Target /> 아주 작은 나라예요. 두 번째 힌트가 위치를 확대해 줘요!</div>
               )}
               <div className="map-gesture-note">
-                <span className="desktop-gesture">휠 확대 · 드래그 이동 · 클릭 선택</span>
-                <span className="mobile-gesture">두 손가락 확대 · 드래그 이동 · 탭 선택</span>
+                <span className="desktop-gesture">휠 확대 · 끌어서 이동 · 국가 클릭</span>
+                <span className="mobile-gesture">두 손가락 확대 · 한 손가락 이동 · 국가 탭</span>
               </div>
             </div>
           </div>

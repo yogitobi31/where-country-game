@@ -1,0 +1,85 @@
+.map-scroll.is-continent-view {
+  height: min(68vh, 680px);
+}
+
+.map-scroll.is-interactive {
+  -webkit-overflow-scrolling: touch;
+}
+
+.map-scroll.is-continent-view .world-map {
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.game-map-wrap.is-continent-mode > .ocean-label {
+  display: none;
+}
+
+.continent-view-badge {
+  position: absolute;
+  z-index: 6;
+  top: 12px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(39, 96, 108, 0.12);
+  border-radius: 999px;
+  background: rgba(231, 248, 243, 0.94);
+  padding: 7px 10px;
+  color: #197554;
+  box-shadow: 0 3px 12px rgba(31, 85, 103, 0.1);
+  font-size: 9px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+.continent-view-badge svg {
+  width: 13px;
+  height: 13px;
+}
+
+.continent-view-badge ~ .micro-tip {
+  top: 48px;
+}
+
+.map-toolbar button:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.map-toolbar button {
+  width: 42px;
+  height: 42px;
+  touch-action: manipulation;
+}
+
+.map-toolbar span {
+  min-width: 48px;
+}
+
+.map-toolbar .map-fit-button {
+  width: 44px;
+  border-left: 1px solid rgba(43, 86, 97, 0.12);
+  color: #197554;
+}
+
+.map-toolbar .map-fit-button svg {
+  width: 14px;
+}
+
+@media (max-width: 600px) {
+  .game-map-card .map-scroll.is-continent-view {
+    height: 100%;
+  }
+
+  .continent-view-badge {
+    top: 8px;
+    left: 8px;
+    padding: 6px 8px;
+  }
+
+  .continent-view-badge ~ .micro-tip {
+    top: 42px;
+  }
+}
