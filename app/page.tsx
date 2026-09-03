@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Fragment,
   type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
@@ -88,6 +89,10 @@ type ModelContext = {
 const STORAGE_KEY = 'where-country-progress-v1';
 const QUESTION_COUNT = 10;
 const starterCountries = ['KR', 'JP', 'CN', 'IN', 'US', 'CA', 'BR', 'FR', 'GB', 'DE', 'IT', 'ES', 'EG', 'ZA', 'AU', 'NZ'];
+const mapHotspotCountryCodes = new Set([
+  'CV', 'KM', 'KI', 'MV', 'MH', 'FM', 'MU', 'NR', 'PW', 'WS', 'SC', 'ST', 'TO',
+  'TV',
+]);
 
 const initialStats: PlayerStats = {
   totalCorrect: 0,
@@ -186,6 +191,45 @@ function MapBoard({
     scroll.addEventListener('wheel', handleWheel, { passive: false });
     return () => scroll.removeEventListener('wheel', handleWheel);
   }, [onZoomChange, playable, zoomAtPoint]);
+
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll || !playable || !onZoomChange || hintLevel !== 2 || !targetCode) return;
+
+    const country = scroll.querySelector<SVGGraphicsElement>(
+      `[data-country-code="${targetCode}"]`,
+    );
+    const svg = scroll.querySelector<SVGSVGElement>('svg');
+    if (!country || !svg) return;
+
+    const box = country.getBBox();
+    const focusZoom = mapHotspotCountryCodes.has(targetCode)
+      ? 4
+      : Math.max(2.4, zoomRef.current);
+    zoomRef.current = focusZoom;
+    onZoomChange(focusZoom);
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const viewBox = svg.viewBox.baseVal;
+        const scale = svg.clientWidth / viewBox.width;
+        const centerX = (box.x + box.width / 2 - viewBox.x) * scale;
+        const centerY = (box.y + box.height / 2 - viewBox.y) * scale;
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        scroll.scrollTo({
+          left: centerX - scroll.clientWidth / 2,
+          top: centerY - scroll.clientHeight / 2,
+          behavior: prefersReducedMotion ? 'auto' : 'smooth',
+        });
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+    };
+  }, [hintLevel, onZoomChange, playable, targetCode]);
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!playable || (event.pointerType === 'mouse' && event.button !== 0)) return;
@@ -307,30 +351,41 @@ function MapBoard({
           const isWrong = feedback === 'wrong' && code === lastGuess;
           const isHint = hintLevel === 2 && code === targetCode;
           const isGameCountry = countrySet.has(code);
+          const isMapHotspot = mapHotspotCountryCodes.has(code);
           const isContinentHint = Boolean(
             hintContinent && isGameCountry && getCountryContinent(code) === hintContinent,
           );
           const previewClass = !playable && isGameCountry && index % 7 === 0 ? 'is-preview' : '';
 
           return (
-            <path
-              key={location.id}
-              d={location.path}
-              role={playable ? 'button' : undefined}
-              tabIndex={playable && isGameCountry ? 0 : -1}
-              aria-label={playable ? getCountryName(code) : undefined}
-              aria-disabled={!isGameCountry}
-              onClick={() => playable && isGameCountry && selectCountry(code)}
-              onKeyDown={(event) => {
-                if (playable && isGameCountry && (event.key === 'Enter' || event.key === ' ')) {
-                  event.preventDefault();
-                  onSelect?.(code);
-                }
-              }}
-              className={`map-country ${!isGameCountry ? 'is-territory' : ''} ${previewClass} ${isContinentHint ? 'is-continent-hint' : ''} ${isCorrect ? 'is-correct' : ''} ${isWrong ? 'is-wrong' : ''} ${isHint ? 'is-hint' : ''}`}
-            >
-              {playable && <title>{getCountryName(code)}</title>}
-            </path>
+            <Fragment key={location.id}>
+              {playable && isGameCountry && isMapHotspot && (
+                <path
+                  d={location.path}
+                  aria-hidden="true"
+                  className="country-hitbox"
+                  onClick={() => selectCountry(code)}
+                />
+              )}
+              <path
+                d={location.path}
+                data-country-code={code}
+                role={playable ? 'button' : undefined}
+                tabIndex={playable && isGameCountry ? 0 : -1}
+                aria-label={playable ? getCountryName(code) : undefined}
+                aria-disabled={!isGameCountry}
+                onClick={() => playable && isGameCountry && selectCountry(code)}
+                onKeyDown={(event) => {
+                  if (playable && isGameCountry && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    onSelect?.(code);
+                  }
+                }}
+                className={`map-country ${!isGameCountry ? 'is-territory' : ''} ${isMapHotspot ? 'is-map-hotspot' : ''} ${previewClass} ${isContinentHint ? 'is-continent-hint' : ''} ${isCorrect ? 'is-correct' : ''} ${isWrong ? 'is-wrong' : ''} ${isHint ? 'is-hint' : ''}`}
+              >
+                {playable && <title>{getCountryName(code)}</title>}
+              </path>
+            </Fragment>
           );
         })}
       </svg>
@@ -404,24 +459,40 @@ export default function Home() {
     }
   }, [stats, statsReady]);
 
-  function playTone(correct: boolean) {
-    if (!soundOn || typeof window === 'undefined') return;
+  function playTone(correct: boolean, force = false) {
+    if ((!soundOn && !force) || typeof window === 'undefined') return;
     const AudioContextClass = window.AudioContext;
     if (!AudioContextClass) return;
     const context = audioContext.current ?? new AudioContextClass();
     audioContext.current = context;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.type = correct ? 'sine' : 'triangle';
-    oscillator.frequency.setValueAtTime(correct ? 520 : 170, context.currentTime);
-    if (correct) oscillator.frequency.exponentialRampToValueAtTime(780, context.currentTime + 0.13);
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.19);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.2);
+
+    const startTone = () => {
+      const startedAt = context.currentTime;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = correct ? 'sine' : 'triangle';
+      oscillator.frequency.setValueAtTime(correct ? 520 : 170, startedAt);
+      if (correct) oscillator.frequency.exponentialRampToValueAtTime(780, startedAt + 0.13);
+      gain.gain.setValueAtTime(0.0001, startedAt);
+      gain.gain.exponentialRampToValueAtTime(0.14, startedAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.2);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(startedAt);
+      oscillator.stop(startedAt + 0.21);
+    };
+
+    if (context.state !== 'running') {
+      void context.resume().then(startTone).catch(() => undefined);
+      return;
+    }
+    startTone();
+  }
+
+  function toggleSound() {
+    const nextSoundOn = !soundOn;
+    setSoundOn(nextSoundOn);
+    if (nextSoundOn) playTone(true, true);
   }
 
   const startGame = useCallback(
@@ -627,7 +698,7 @@ export default function Home() {
             )}
             <button
               type="button"
-              onClick={() => setSoundOn((current) => !current)}
+              onClick={toggleSound}
               aria-label={soundOn ? '효과음 끄기' : '효과음 켜기'}
               className="grid size-10 place-items-center rounded-xl text-[#bad0e3] transition-colors hover:bg-white/10 hover:text-white"
             >
@@ -835,7 +906,7 @@ export default function Home() {
                 onSelect={handleCountry}
               />
               {microCountryCodes.has(targetCode) && feedback !== 'correct' && (
-                <div className="micro-tip"><Target /> 아주 작은 나라예요. 스크롤이나 두 손가락으로 확대해 보세요!</div>
+                <div className="micro-tip"><Target /> 아주 작은 나라예요. 두 번째 힌트가 위치를 확대해 줘요!</div>
               )}
               <div className="map-gesture-note">
                 <span className="desktop-gesture">휠 확대 · 드래그 이동 · 클릭 선택</span>

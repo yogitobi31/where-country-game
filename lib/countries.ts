@@ -49,7 +49,7 @@ export const allCountryCodes = Object.values(sovereignByContinent).flat();
 export const microCountryCodes = new Set([
   'AD', 'AG', 'BH', 'BB', 'CV', 'KM', 'DM', 'GD', 'KI', 'LI', 'LU', 'MV', 'MT',
   'MH', 'FM', 'MC', 'NR', 'PW', 'KN', 'LC', 'VC', 'SM', 'SC', 'SG', 'ST', 'TO',
-  'TT', 'TV', 'VA',
+  'TT', 'TV', 'VA', 'WS',
 ]);
 
 const displayNames = new Intl.DisplayNames(['ko'], { type: 'region' });
