@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -18,7 +19,7 @@ import {
   Globe2,
   GraduationCap,
   Lightbulb,
-  Map,
+  Map as MapIcon,
   MapPinned,
   Minus,
   Plus,
@@ -107,8 +108,10 @@ function MapBoard({
   lastGuess,
   feedback,
   hintLevel,
+  hintContinent,
   zoom,
   playable,
+  onZoomChange,
   onSelect,
 }: {
   map: MapData | null;
@@ -116,14 +119,175 @@ function MapBoard({
   lastGuess?: string | null;
   feedback?: Feedback;
   hintLevel?: number;
+  hintContinent?: ContinentCode;
   zoom: number;
   playable: boolean;
+  onZoomChange?: (zoom: number) => void;
   onSelect?: (code: string) => void;
 }) {
   const countrySet = useMemo(() => new Set(allCountryCodes), []);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const zoomRef = useRef(zoom);
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const dragRef = useRef({ startX: 0, startY: 0, lastX: 0, lastY: 0, moved: false });
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const suppressClickRef = useRef(false);
+  const [isPanning, setIsPanning] = useState(false);
+
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    const previousZoom = zoomRef.current;
+    if (!scroll || previousZoom === zoom) return;
+
+    if (zoom === 1) {
+      scroll.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
+    } else {
+      const centerX = scroll.clientWidth / 2;
+      const centerY = scroll.clientHeight / 2;
+      const ratio = zoom / previousZoom;
+      requestAnimationFrame(() => {
+        scroll.scrollLeft = (scroll.scrollLeft + centerX) * ratio - centerX;
+        scroll.scrollTop = (scroll.scrollTop + centerY) * ratio - centerY;
+      });
+    }
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  const zoomAtPoint = useCallback((nextValue: number, clientX: number, clientY: number) => {
+    const scroll = scrollRef.current;
+    const nextZoom = Math.min(4, Math.max(1, nextValue));
+    const previousZoom = zoomRef.current;
+    if (!scroll || !onZoomChange || Math.abs(nextZoom - previousZoom) < 0.01) return;
+
+    const bounds = scroll.getBoundingClientRect();
+    const localX = clientX - bounds.left;
+    const localY = clientY - bounds.top;
+    const contentX = scroll.scrollLeft + localX;
+    const contentY = scroll.scrollTop + localY;
+    const ratio = nextZoom / previousZoom;
+    zoomRef.current = nextZoom;
+    onZoomChange(nextZoom);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scroll.scrollLeft = contentX * ratio - localX;
+        scroll.scrollTop = contentY * ratio - localY;
+      });
+    });
+  }, [onZoomChange]);
+
+  useEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll || !playable || !onZoomChange) return;
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const factor = Math.exp(-event.deltaY * 0.0015);
+      zoomAtPoint(zoomRef.current * factor, event.clientX, event.clientY);
+    };
+    scroll.addEventListener('wheel', handleWheel, { passive: false });
+    return () => scroll.removeEventListener('wheel', handleWheel);
+  }, [onZoomChange, playable, zoomAtPoint]);
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!playable || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    const captureTarget = event.target as Element;
+    captureTarget.setPointerCapture(event.pointerId);
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (pointersRef.current.size === 1) {
+      dragRef.current = {
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        moved: false,
+      };
+      setIsPanning(true);
+    } else if (pointersRef.current.size === 2) {
+      const [first, second] = [...pointersRef.current.values()];
+      pinchRef.current = {
+        distance: Math.hypot(second.x - first.x, second.y - first.y),
+        zoom: zoomRef.current,
+      };
+      dragRef.current.moved = true;
+      suppressClickRef.current = true;
+    }
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!playable || !pointersRef.current.has(event.pointerId)) return;
+    event.preventDefault();
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const points = [...pointersRef.current.values()];
+
+    if (points.length >= 2) {
+      const [first, second] = points;
+      const distance = Math.hypot(second.x - first.x, second.y - first.y);
+      const centerX = (first.x + second.x) / 2;
+      const centerY = (first.y + second.y) / 2;
+      const pinch = pinchRef.current;
+      if (pinch && pinch.distance > 0) {
+        zoomAtPoint(pinch.zoom * (distance / pinch.distance), centerX, centerY);
+      }
+      dragRef.current.moved = true;
+      suppressClickRef.current = true;
+      return;
+    }
+
+    const scroll = scrollRef.current;
+    const drag = dragRef.current;
+    if (!scroll) return;
+    const deltaX = event.clientX - drag.lastX;
+    const deltaY = event.clientY - drag.lastY;
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 5) {
+      drag.moved = true;
+      suppressClickRef.current = true;
+    }
+    scroll.scrollLeft -= deltaX;
+    scroll.scrollTop -= deltaY;
+  }
+
+  function handlePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!pointersRef.current.has(event.pointerId)) return;
+    pointersRef.current.delete(event.pointerId);
+    if (dragRef.current.moved || pinchRef.current) {
+      suppressClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 300);
+    }
+    pinchRef.current = null;
+
+    const remaining = [...pointersRef.current.values()][0];
+    if (remaining) {
+      dragRef.current = {
+        startX: remaining.x,
+        startY: remaining.y,
+        lastX: remaining.x,
+        lastY: remaining.y,
+        moved: true,
+      };
+    } else {
+      setIsPanning(false);
+    }
+  }
+
+  function selectCountry(code: string) {
+    if (suppressClickRef.current) return;
+    onSelect?.(code);
+  }
 
   return (
-    <div className="map-scroll" aria-busy={!map}>
+    <div
+      ref={scrollRef}
+      className={`map-scroll ${playable ? 'is-interactive' : ''} ${isPanning ? 'is-panning' : ''} ${hintContinent ? 'has-continent-hint' : ''}`}
+      aria-busy={!map}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerEnd}
+      onPointerCancel={handlePointerEnd}
+    >
       {!map && (
         <div className="absolute inset-0 z-10 grid place-items-center">
           <div className="flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-sm font-extrabold text-[#48616d] shadow-sm">
@@ -143,6 +307,9 @@ function MapBoard({
           const isWrong = feedback === 'wrong' && code === lastGuess;
           const isHint = hintLevel === 2 && code === targetCode;
           const isGameCountry = countrySet.has(code);
+          const isContinentHint = Boolean(
+            hintContinent && isGameCountry && getCountryContinent(code) === hintContinent,
+          );
           const previewClass = !playable && isGameCountry && index % 7 === 0 ? 'is-preview' : '';
 
           return (
@@ -153,14 +320,14 @@ function MapBoard({
               tabIndex={playable && isGameCountry ? 0 : -1}
               aria-label={playable ? getCountryName(code) : undefined}
               aria-disabled={!isGameCountry}
-              onClick={() => playable && isGameCountry && onSelect?.(code)}
+              onClick={() => playable && isGameCountry && selectCountry(code)}
               onKeyDown={(event) => {
                 if (playable && isGameCountry && (event.key === 'Enter' || event.key === ' ')) {
                   event.preventDefault();
                   onSelect?.(code);
                 }
               }}
-              className={`map-country ${!isGameCountry ? 'is-territory' : ''} ${previewClass} ${isCorrect ? 'is-correct' : ''} ${isWrong ? 'is-wrong' : ''} ${isHint ? 'is-hint' : ''}`}
+              className={`map-country ${!isGameCountry ? 'is-territory' : ''} ${previewClass} ${isContinentHint ? 'is-continent-hint' : ''} ${isCorrect ? 'is-correct' : ''} ${isWrong ? 'is-wrong' : ''} ${isHint ? 'is-hint' : ''}`}
             >
               {playable && <title>{getCountryName(code)}</title>}
             </path>
@@ -428,8 +595,8 @@ export default function Home() {
 
   return (
     <main className="min-h-screen overflow-x-hidden bg-background text-foreground">
-      <header className="relative z-30 border-b border-white/10 bg-[#10243e] text-white">
-        <div className="mx-auto flex h-[72px] max-w-[1480px] items-center justify-between px-4 sm:px-8">
+      <header className="site-header relative z-30 border-b border-white/10 bg-[#10243e] text-white">
+        <div className="site-header-inner mx-auto flex h-[72px] max-w-[1480px] items-center justify-between px-4 sm:px-8">
           <button type="button" onClick={goHome} className="flex items-center gap-3 text-left" aria-label="시작 화면으로 이동">
             <span className="grid size-10 place-items-center rounded-[14px] bg-[#ffcf4a] text-[#10243e] shadow-[0_4px_0_#d99e11]">
               <Globe2 className="size-6" strokeWidth={2.4} />
@@ -499,7 +666,7 @@ export default function Home() {
                   onClick={() => setSelectedMode('continent')}
                   className={`mode-card ${selectedMode === 'continent' ? 'is-selected' : ''}`}
                 >
-                  <span className="mode-icon mode-icon-continent"><Map /></span>
+                  <span className="mode-icon mode-icon-continent"><MapIcon /></span>
                   <span className="min-w-0 flex-1">
                     <strong>대륙별 학습</strong>
                     <small>한 지역을 집중해서 차근차근</small>
@@ -586,9 +753,15 @@ export default function Home() {
               <div className="question-copy">
                 <p><MapPinned className="size-4" /> 문제 {questionIndex + 1}</p>
                 <h1><span>{getCountryName(targetCode)}</span>,<br />지도에서 찾아보세요!</h1>
-                <div className="question-meta">
-                  <span>{getCountryFlag(targetCode)}</span>
-                  <p>{hintLevel >= 1 ? `${targetContinent?.name}에 있어요` : '어느 대륙에 있을까요?'}</p>
+                <div className="question-visual">
+                  <span className="flag-postcard" aria-hidden="true">
+                    {getCountryFlag(targetCode)}
+                  </span>
+                  <span className="sr-only">{getCountryName(targetCode)} 국기</span>
+                  <div>
+                    <strong>국기를 보고 위치를 떠올려 보세요</strong>
+                    <p>지도 위에서 나라를 탭하거나 클릭하면 돼요.</p>
+                  </div>
                 </div>
               </div>
 
@@ -626,7 +799,7 @@ export default function Home() {
                   disabled={hintLevel === 2}
                   className="hint-button"
                 >
-                  <Lightbulb /> {hintLevel === 0 ? '대륙 힌트 보기' : hintLevel === 1 ? '지도에서 반짝이기' : '힌트를 모두 사용했어요'}
+                  <Lightbulb /> {hintLevel === 0 ? '대륙 영역 하이라이트' : hintLevel === 1 ? '정답 나라까지 반짝이기' : '힌트를 모두 사용했어요'}
                 </button>
               )}
 
@@ -643,9 +816,9 @@ export default function Home() {
             <span className="ocean-label left-[45%] top-[44%]">대 서 양</span>
             <span className="ocean-label right-[8%] top-[28%]">태 평 양</span>
             <div className="map-toolbar">
-              <button type="button" onClick={() => setZoom((current) => Math.min(2.4, current + 0.35))} aria-label="지도 확대"><Plus /></button>
+              <button type="button" onClick={() => setZoom((current) => Math.min(4, current + 0.4))} aria-label="지도 확대"><Plus /></button>
               <span>{Math.round(zoom * 100)}%</span>
-              <button type="button" onClick={() => setZoom((current) => Math.max(1, current - 0.35))} aria-label="지도 축소"><Minus /></button>
+              <button type="button" onClick={() => setZoom((current) => Math.max(1, current - 0.4))} aria-label="지도 축소"><Minus /></button>
             </div>
             <button type="button" onClick={goHome} className="exit-game"><ArrowLeft /> 모드 바꾸기</button>
             <div className="game-map-card">
@@ -655,14 +828,19 @@ export default function Home() {
                 lastGuess={lastGuess}
                 feedback={feedback}
                 hintLevel={hintLevel}
+                hintContinent={hintLevel >= 1 ? targetContinent?.code : undefined}
                 zoom={zoom}
                 playable
+                onZoomChange={setZoom}
                 onSelect={handleCountry}
               />
               {microCountryCodes.has(targetCode) && feedback !== 'correct' && (
-                <div className="micro-tip"><Target /> 아주 작은 나라예요. + 버튼으로 확대해 보세요!</div>
+                <div className="micro-tip"><Target /> 아주 작은 나라예요. 스크롤이나 두 손가락으로 확대해 보세요!</div>
               )}
-              <div className="click-note"><span /> 나라를 클릭해 보세요</div>
+              <div className="map-gesture-note">
+                <span className="desktop-gesture">휠 확대 · 드래그 이동 · 클릭 선택</span>
+                <span className="mobile-gesture">두 손가락 확대 · 드래그 이동 · 탭 선택</span>
+              </div>
             </div>
           </div>
         </section>
