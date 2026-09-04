@@ -1,12 +1,8 @@
 'use client';
 
 import {
-  Fragment,
-  type PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -43,7 +39,6 @@ import {
   getCountryCapital,
   getCountryContinent,
   getCountryFact,
-  getCountryFlag,
   getCountryName,
   majorCountriesByContinent,
   majorCountryCodes,
@@ -53,11 +48,9 @@ import {
   type ContinentCode,
 } from '@/lib/countries';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-
-type MapData = {
-  viewBox: string;
-  locations: Array<{ id: string; name: string; path: string }>;
-};
+import { MapBoard, type MapData } from './map-board';
+import { MAX_MAP_ZOOM } from '@/lib/map-geometry';
+import { CountryFlag } from './country-flag';
 
 type GameMode = 'world' | 'continent' | 'review';
 type ChallengeScope = 'major' | 'all';
@@ -95,13 +88,9 @@ type ModelContext = {
 const STORAGE_KEY = 'where-country-progress-v1';
 const QUESTION_COUNT = 10;
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 8;
+const MAX_ZOOM = MAX_MAP_ZOOM;
 const ZOOM_STEP = 0.5;
 const starterCountries = ['KR', 'JP', 'CN', 'IN', 'US', 'CA', 'BR', 'FR', 'GB', 'DE', 'IT', 'ES', 'EG', 'ZA', 'AU', 'NZ'];
-const mapHotspotCountryCodes = new Set([
-  'CV', 'KM', 'KI', 'MV', 'MH', 'FM', 'MU', 'NR', 'PW', 'WS', 'SC', 'ST', 'TO',
-  'TV',
-]);
 const majorCountryCodeSet = new Set(majorCountryCodes);
 const allCountryCodeSet = new Set(allCountryCodes);
 
@@ -224,360 +213,6 @@ function ModeOptions({
   );
 }
 
-function MapBoard({
-  map,
-  targetCode,
-  lastGuess,
-  feedback,
-  hintLevel,
-  hintContinent,
-  focusContinent,
-  zoom,
-  playable,
-  onZoomChange,
-  onSelect,
-}: {
-  map: MapData | null;
-  targetCode?: string;
-  lastGuess?: string | null;
-  feedback?: Feedback;
-  hintLevel?: number;
-  hintContinent?: ContinentCode;
-  focusContinent?: ContinentCode;
-  zoom: number;
-  playable: boolean;
-  onZoomChange?: (zoom: number) => void;
-  onSelect?: (code: string) => void;
-}) {
-  const countrySet = useMemo(() => new Set(allCountryCodes), []);
-  const visibleLocations = focusContinent
-    ? (map?.locations.filter((location) => {
-        const code = location.id.toUpperCase();
-        return countrySet.has(code) && getCountryContinent(code) === focusContinent;
-      }) ?? [])
-    : (map?.locations ?? []);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const svgRef = useRef<SVGSVGElement>(null);
-  const zoomRef = useRef(zoom);
-  const pointersRef = useRef(new Map<number, { x: number; y: number }>());
-  const dragRef = useRef({ startX: 0, startY: 0, lastX: 0, lastY: 0, moved: false });
-  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
-  const suppressClickRef = useRef(false);
-  const [isPanning, setIsPanning] = useState(false);
-
-  useLayoutEffect(() => {
-    const defaultViewBox = map?.viewBox ?? '0 0 1010 666';
-    const svg = svgRef.current;
-    if (!svg) return;
-    if (!focusContinent) {
-      svg.setAttribute('viewBox', defaultViewBox);
-      return;
-    }
-
-    const countries = svg.querySelectorAll<SVGGraphicsElement>('.map-country');
-    if (!countries.length) {
-      svg.setAttribute('viewBox', defaultViewBox);
-      return;
-    }
-    const countriesForBounds = Array.from(countries).filter(
-      (country) => !(focusContinent === 'EU' && country.dataset.countryCode === 'RU'),
-    );
-
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
-
-    countriesForBounds.forEach((country) => {
-      const box = country.getBBox();
-      minX = Math.min(minX, box.x);
-      minY = Math.min(minY, box.y);
-      maxX = Math.max(maxX, box.x + box.width);
-      maxY = Math.max(maxY, box.y + box.height);
-    });
-
-    const width = maxX - minX;
-    const height = maxY - minY;
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
-
-    const paddingX = Math.max(width * 0.08, 8);
-    const paddingY = Math.max(height * 0.08, 8);
-    const nextViewBox = [
-      minX - paddingX,
-      minY - paddingY,
-      width + paddingX * 2,
-      height + paddingY * 2,
-    ].map((value) => value.toFixed(2)).join(' ');
-    svg.setAttribute('viewBox', nextViewBox);
-  }, [focusContinent, map]);
-
-  useEffect(() => {
-    const scroll = scrollRef.current;
-    const previousZoom = zoomRef.current;
-    if (!scroll || previousZoom === zoom) return;
-
-    if (zoom === 1) {
-      scroll.scrollTo({ left: 0, top: 0, behavior: 'smooth' });
-    } else {
-      const centerX = scroll.clientWidth / 2;
-      const centerY = scroll.clientHeight / 2;
-      const ratio = zoom / previousZoom;
-      requestAnimationFrame(() => {
-        scroll.scrollLeft = (scroll.scrollLeft + centerX) * ratio - centerX;
-        scroll.scrollTop = (scroll.scrollTop + centerY) * ratio - centerY;
-      });
-    }
-    zoomRef.current = zoom;
-  }, [zoom]);
-
-  const zoomAtPoint = useCallback((nextValue: number, clientX: number, clientY: number) => {
-    const scroll = scrollRef.current;
-    const nextZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextValue));
-    const previousZoom = zoomRef.current;
-    if (!scroll || !onZoomChange || Math.abs(nextZoom - previousZoom) < 0.01) return;
-
-    const bounds = scroll.getBoundingClientRect();
-    const localX = clientX - bounds.left;
-    const localY = clientY - bounds.top;
-    const contentX = scroll.scrollLeft + localX;
-    const contentY = scroll.scrollTop + localY;
-    const ratio = nextZoom / previousZoom;
-    zoomRef.current = nextZoom;
-    onZoomChange(nextZoom);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        scroll.scrollLeft = contentX * ratio - localX;
-        scroll.scrollTop = contentY * ratio - localY;
-      });
-    });
-  }, [onZoomChange]);
-
-  useEffect(() => {
-    const scroll = scrollRef.current;
-    if (!scroll || !playable || !onZoomChange) return;
-    const handleWheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const factor = Math.exp(-event.deltaY * 0.0015);
-      zoomAtPoint(zoomRef.current * factor, event.clientX, event.clientY);
-    };
-    scroll.addEventListener('wheel', handleWheel, { passive: false });
-    return () => scroll.removeEventListener('wheel', handleWheel);
-  }, [onZoomChange, playable, zoomAtPoint]);
-
-  useEffect(() => {
-    const scroll = scrollRef.current;
-    if (!scroll || !playable || !onZoomChange || hintLevel !== 2 || !targetCode) return;
-
-    const country = scroll.querySelector<SVGGraphicsElement>(
-      `[data-country-code="${targetCode}"]`,
-    );
-    const svg = scroll.querySelector<SVGSVGElement>('svg');
-    if (!country || !svg) return;
-
-    const box = country.getBBox();
-    const isTinyTarget = mapHotspotCountryCodes.has(targetCode) || microCountryCodes.has(targetCode);
-    const focusZoom = isTinyTarget
-      ? 6
-      : Math.max(3, zoomRef.current);
-    zoomRef.current = focusZoom;
-    onZoomChange(focusZoom);
-
-    let secondFrame = 0;
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => {
-        const matrix = svg.getScreenCTM();
-        if (!matrix) return;
-        const center = svg.createSVGPoint();
-        center.x = box.x + box.width / 2;
-        center.y = box.y + box.height / 2;
-        const renderedCenter = center.matrixTransform(matrix);
-        const scrollBounds = scroll.getBoundingClientRect();
-        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        scroll.scrollTo({
-          left: scroll.scrollLeft + renderedCenter.x - scrollBounds.left - scroll.clientWidth / 2,
-          top: scroll.scrollTop + renderedCenter.y - scrollBounds.top - scroll.clientHeight / 2,
-          behavior: prefersReducedMotion ? 'auto' : 'smooth',
-        });
-      });
-    });
-
-    return () => {
-      cancelAnimationFrame(firstFrame);
-      cancelAnimationFrame(secondFrame);
-    };
-  }, [hintLevel, onZoomChange, playable, targetCode]);
-
-  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!playable || (event.pointerType === 'mouse' && event.button !== 0)) return;
-    const captureTarget = event.target as Element;
-    captureTarget.setPointerCapture(event.pointerId);
-    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-
-    if (pointersRef.current.size === 1) {
-      dragRef.current = {
-        startX: event.clientX,
-        startY: event.clientY,
-        lastX: event.clientX,
-        lastY: event.clientY,
-        moved: false,
-      };
-      setIsPanning(true);
-    } else if (pointersRef.current.size === 2) {
-      const [first, second] = [...pointersRef.current.values()];
-      pinchRef.current = {
-        distance: Math.hypot(second.x - first.x, second.y - first.y),
-        zoom: zoomRef.current,
-      };
-      dragRef.current.moved = true;
-      suppressClickRef.current = true;
-    }
-  }
-
-  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!playable || !pointersRef.current.has(event.pointerId)) return;
-    event.preventDefault();
-    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    const points = [...pointersRef.current.values()];
-
-    if (points.length >= 2) {
-      const [first, second] = points;
-      const distance = Math.hypot(second.x - first.x, second.y - first.y);
-      const centerX = (first.x + second.x) / 2;
-      const centerY = (first.y + second.y) / 2;
-      const pinch = pinchRef.current;
-      if (pinch && pinch.distance > 0) {
-        zoomAtPoint(pinch.zoom * (distance / pinch.distance), centerX, centerY);
-      }
-      dragRef.current.moved = true;
-      suppressClickRef.current = true;
-      return;
-    }
-
-    const scroll = scrollRef.current;
-    const drag = dragRef.current;
-    if (!scroll) return;
-    const deltaX = event.clientX - drag.lastX;
-    const deltaY = event.clientY - drag.lastY;
-    drag.lastX = event.clientX;
-    drag.lastY = event.clientY;
-    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 5) {
-      drag.moved = true;
-      suppressClickRef.current = true;
-    }
-    scroll.scrollLeft -= deltaX;
-    scroll.scrollTop -= deltaY;
-  }
-
-  function handlePointerEnd(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!pointersRef.current.has(event.pointerId)) return;
-    pointersRef.current.delete(event.pointerId);
-    if (dragRef.current.moved || pinchRef.current) {
-      suppressClickRef.current = true;
-      window.setTimeout(() => {
-        suppressClickRef.current = false;
-      }, 300);
-    }
-    pinchRef.current = null;
-
-    const remaining = [...pointersRef.current.values()][0];
-    if (remaining) {
-      dragRef.current = {
-        startX: remaining.x,
-        startY: remaining.y,
-        lastX: remaining.x,
-        lastY: remaining.y,
-        moved: true,
-      };
-    } else {
-      setIsPanning(false);
-    }
-  }
-
-  function selectCountry(code: string) {
-    if (suppressClickRef.current) return;
-    onSelect?.(code);
-  }
-
-  return (
-    <div
-      ref={scrollRef}
-      className={`map-scroll ${playable ? 'is-interactive' : ''} ${isPanning ? 'is-panning' : ''} ${hintContinent ? 'has-continent-hint' : ''} ${focusContinent ? 'is-continent-view' : ''}`}
-      aria-busy={!map}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerEnd}
-      onPointerCancel={handlePointerEnd}
-    >
-      {!map && (
-        <div className="absolute inset-0 z-10 grid place-items-center">
-          <div className="flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-sm font-extrabold text-[#48616d] shadow-sm">
-            <Globe2 className="size-4 animate-spin text-[#39b879]" /> 지도 펼치는 중…
-          </div>
-        </div>
-      )}
-      <svg
-        ref={svgRef}
-        viewBox={map?.viewBox ?? '0 0 1010 666'}
-        preserveAspectRatio="xMidYMid meet"
-        aria-label={
-          focusContinent
-            ? `${continentOptions.find((item) => item.code === focusContinent)?.name ?? '선택한 대륙'} 전용 지도`
-            : playable ? '나라를 선택할 수 있는 세계지도' : '세계지도 미리보기'
-        }
-        className="world-map"
-        style={{
-          width: `${zoom * 100}%`,
-          height: focusContinent ? `${zoom * 100}%` : undefined,
-        }}
-      >
-        {visibleLocations.map((location, index) => {
-          const code = location.id.toUpperCase();
-          const isCorrect = feedback === 'correct' && code === targetCode;
-          const isWrong = feedback === 'wrong' && code === lastGuess;
-          const isHint = hintLevel === 2 && code === targetCode;
-          const isGameCountry = countrySet.has(code);
-          const isRemoteHotspot = mapHotspotCountryCodes.has(code);
-          const isMapHotspot = isRemoteHotspot || microCountryCodes.has(code);
-          const isContinentHint = Boolean(
-            hintContinent && isGameCountry && getCountryContinent(code) === hintContinent,
-          );
-          const previewClass = !playable && isGameCountry && index % 7 === 0 ? 'is-preview' : '';
-
-          return (
-            <Fragment key={location.id}>
-              {playable && isGameCountry && isMapHotspot && (
-                <path
-                  d={location.path}
-                  aria-hidden="true"
-                  className={`country-hitbox ${isRemoteHotspot ? 'is-remote-hotspot' : ''}`}
-                  onClick={() => selectCountry(code)}
-                />
-              )}
-              <path
-                d={location.path}
-                data-country-code={code}
-                role={playable ? 'button' : undefined}
-                tabIndex={playable && isGameCountry ? 0 : -1}
-                aria-label={playable ? getCountryName(code) : undefined}
-                aria-disabled={!isGameCountry}
-                onClick={() => playable && isGameCountry && selectCountry(code)}
-                onKeyDown={(event) => {
-                  if (playable && isGameCountry && (event.key === 'Enter' || event.key === ' ')) {
-                    event.preventDefault();
-                    onSelect?.(code);
-                  }
-                }}
-                className={`map-country ${!isGameCountry ? 'is-territory' : ''} ${isMapHotspot ? 'is-map-hotspot' : ''} ${previewClass} ${isContinentHint ? 'is-continent-hint' : ''} ${isCorrect ? 'is-correct' : ''} ${isWrong ? 'is-wrong' : ''} ${isHint ? 'is-hint' : ''}`}
-              >
-                {playable && <title>{getCountryName(code)}</title>}
-              </path>
-            </Fragment>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
 
 export default function Home() {
   const [worldMap, setWorldMap] = useState<MapData | null>(null);
@@ -599,6 +234,7 @@ export default function Home() {
   const [roundResults, setRoundResults] = useState<RoundResult[]>([]);
   const [sessionMisses, setSessionMisses] = useState<string[]>([]);
   const [zoom, setZoom] = useState(1);
+  const [mapResetKey, setMapResetKey] = useState(0);
   const [soundOn, setSoundOn] = useState(true);
   const [stats, setStats] = useState<PlayerStats>(initialStats);
   const [statsReady, setStatsReady] = useState(false);
@@ -809,7 +445,8 @@ export default function Home() {
     if (code === targetCode) {
       const firstTry = attempts === 0;
       const nextStreak = streak + 1;
-      const gained = Math.max(40, 100 - attempts * 25 - hintLevel * 15) + streak * 10;
+      const hintsUsed = selectedMode === 'continent' ? Math.min(1, hintLevel) : hintLevel;
+      const gained = Math.max(40, 100 - attempts * 25 - hintsUsed * 15) + streak * 10;
       setFeedback('correct');
       setScore((current) => current + gained);
       setStreak(nextStreak);
@@ -855,7 +492,6 @@ export default function Home() {
     setLastGuess(null);
     setAttempts(0);
     setHintLevel(0);
-    setZoom(1);
   }
 
   function goHome() {
@@ -986,7 +622,7 @@ export default function Home() {
               <div className="map-grid absolute inset-0 opacity-35" />
               <span className="ocean-label left-[5%] top-[29%]">태 평 양</span>
               <span className="ocean-label left-[46%] top-[41%]">대 서 양</span>
-              <div className="floating-tip tip-one"><span>🇧🇷</span><b>남아메리카</b></div>
+              <div className="floating-tip tip-one"><CountryFlag code="BR" /><b>남아메리카</b></div>
               <div className="floating-tip tip-two"><Sparkles /><b>10문제 챌린지</b></div>
               <div className="home-map-card">
                 <div className="map-card-label"><MapPinned className="size-4" /> 지도를 눌러 배우는 세계지리</div>
@@ -1016,10 +652,9 @@ export default function Home() {
                 <p><MapPinned className="size-4" /> 문제 {questionIndex + 1}</p>
                 <h1><span>{getCountryName(targetCode)}</span>,<br />지도에서 찾아보세요!</h1>
                 <div className="question-visual">
-                  <span className="flag-postcard" aria-hidden="true">
-                    {getCountryFlag(targetCode)}
+                  <span className="flag-postcard">
+                    <CountryFlag code={targetCode} />
                   </span>
-                  <span className="sr-only">{getCountryName(targetCode)} 국기</span>
                   <div>
                     <strong>국기를 보고 위치를 떠올려 보세요</strong>
                     <p>지도 위에서 나라를 탭하거나 클릭하면 돼요.</p>
@@ -1057,11 +692,11 @@ export default function Home() {
               {feedback !== 'correct' && (
                 <button
                   type="button"
-                  onClick={() => setHintLevel((current) => Math.min(2, current + 1))}
+                  onClick={() => setHintLevel((current) => selectedMode === 'continent' ? 2 : Math.min(2, current + 1))}
                   disabled={hintLevel === 2}
                   className="hint-button"
                 >
-                  <Lightbulb /> {hintLevel === 0 ? '대륙 영역 하이라이트' : hintLevel === 1 ? '정답 나라까지 반짝이기' : '힌트를 모두 사용했어요'}
+                  <Lightbulb /> {hintLevel === 2 ? '위치 힌트를 사용했어요' : selectedMode === 'continent' || hintLevel === 1 ? '정답 위치 확대 · −15점' : '대륙 영역 힌트 · −15점'}
                 </button>
               )}
 
@@ -1097,7 +732,7 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={() => setZoom(MIN_ZOOM)}
+                onClick={() => { setZoom(MIN_ZOOM); setMapResetKey(current => current + 1); }}
                 aria-label={selectedMode === 'continent' ? '대륙 전체에 맞추기' : '세계지도 전체에 맞추기'}
                 className="map-fit-button"
               >
@@ -1117,15 +752,16 @@ export default function Home() {
                 lastGuess={lastGuess}
                 feedback={feedback}
                 hintLevel={hintLevel}
-                hintContinent={hintLevel >= 1 ? targetContinent?.code : undefined}
+                hintContinent={selectedMode !== 'continent' && hintLevel >= 1 ? targetContinent?.code : undefined}
                 focusContinent={selectedMode === 'continent' ? selectedContinent : undefined}
                 zoom={zoom}
+                resetKey={mapResetKey}
                 playable
                 onZoomChange={setZoom}
                 onSelect={handleCountry}
               />
               {microCountryCodes.has(targetCode) && feedback !== 'correct' && (
-                <div className="micro-tip"><Target /> 아주 작은 나라예요. 두 번째 힌트가 위치를 확대해 줘요!</div>
+                <div className="micro-tip"><Target /> 동그란 표시를 눌러 선택해요. 숫자는 확대 버튼이에요.</div>
               )}
               <div className="map-gesture-note">
                 <span className="desktop-gesture">휠 확대 · 끌어서 이동 · 국가 클릭</span>
@@ -1157,7 +793,7 @@ export default function Home() {
               <div className="review-preview">
                 <div><BookOpenCheck /><p><strong>다음에 다시 만날 나라</strong><small>복습 모드에 자동 저장했어요</small></p></div>
                 <div className="review-chips">
-                  {sessionMisses.slice(0, 5).map((code) => <span key={code}>{getCountryFlag(code)} {getCountryName(code)}</span>)}
+                  {sessionMisses.slice(0, 5).map((code) => <span key={code}><CountryFlag code={code} /> {getCountryName(code)}</span>)}
                   {sessionMisses.length > 5 && <span>+{sessionMisses.length - 5}</span>}
                 </div>
               </div>

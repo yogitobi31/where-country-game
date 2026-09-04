@@ -1,15 +1,31 @@
-.map-scroll.is-continent-view {
-  height: min(68vh, 680px);
-}
-
-.map-scroll.is-interactive {
-  -webkit-overflow-scrolling: touch;
-}
-
-.map-scroll.is-continent-view .world-map {
-  min-width: 100%;
-  min-height: 100%;
-}
+.map-scroll { overflow: hidden; }
+.map-scroll:not(.is-interactive) { height: clamp(260px, 40vw, 560px); }
+.game-map-card .map-scroll { height: 100%; max-height: none; }
+.world-map { width: 100%; height: 100%; min-width: 0; overflow: hidden; transition: none; }
+.game-layout { height: calc(100dvh - 72px); min-height: 0; }
+.question-panel { overflow-y: auto; }
+.game-map-wrap { min-height: 0; padding: 76px 18px 16px; }
+.game-map-card { height: 100%; padding: 0; }
+.game-map-wrap > .ocean-label { display: none; }
+.map-country.is-hint { animation: hint-glow 800ms ease-in-out infinite alternate; }
+.map-pin { cursor: pointer; outline: none; }
+.map-pin circle { fill: #fff; stroke: #326675; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.map-pin .pin-dot { fill: #326675; stroke: none; }
+.map-pin.is-cluster circle { fill: #15394c; stroke: #fff; }
+.map-pin text { fill: white; font-weight: 900; pointer-events: none; }
+.map-pin:hover circle, .map-pin:focus-visible circle { stroke: #e89e00; stroke-width: 3; }
+.map-pin.is-highlighted circle { fill: #ffcf4a; stroke: #b76b00; }
+.map-pin.is-wrong circle { fill: #ffd8ce; stroke: #d54b32; }
+.map-pin.is-highlighted .pin-dot { fill: #714500; }
+.map-loading { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 800; }
+.map-action-notice { position: absolute; bottom: 44px; left: 50%; transform: translateX(-50%); width: max-content; max-width: 92%; border-radius: 12px; background: #10243eee; color: white; padding: 9px 12px; font-size: 12px; text-align: center; pointer-events: none; }
+.country-flag { display: inline-block; width: 28px; height: 21px; object-fit: contain; vertical-align: middle; }
+.flag-postcard .country-flag { width: 64px; height: 48px; }
+.floating-tip .country-flag { width: 30px; height: 24px; }
+.hint-button, .next-button { min-height: 44px; }
+.map-gesture-note, .micro-tip { pointer-events: none; }
+.map-gesture-note { font-size: 11px; }
+.micro-tip { width: max-content; max-width: 92%; font-size: 11px; }
 
 .game-map-wrap.is-continent-mode > .ocean-label {
   display: none;
@@ -29,7 +45,7 @@
   padding: 7px 10px;
   color: #197554;
   box-shadow: 0 3px 12px rgba(31, 85, 103, 0.1);
-  font-size: 9px;
+  font-size: 12px;
   font-weight: 900;
   pointer-events: none;
 }
@@ -49,13 +65,14 @@
 }
 
 .map-toolbar button {
-  width: 42px;
-  height: 42px;
+  width: 44px;
+  height: 44px;
   touch-action: manipulation;
 }
 
 .map-toolbar span {
   min-width: 48px;
+  font-size: 12px;
 }
 
 .map-toolbar .map-fit-button {
@@ -68,7 +85,36 @@
   width: 14px;
 }
 
+@media (max-width: 1023px) {
+  .game-layout { grid-template-rows: auto minmax(0, 1fr); }
+  .question-panel { max-height: 44dvh; padding: 10px 14px; }
+  .question-copy { margin-top: 8px; }
+  .question-copy > p { display: none; }
+  .question-copy h1 { font-size: 20px; margin-top: 0; }
+  .question-copy h1 br { display: none; }
+  .question-visual { margin-top: 7px; padding: 5px 8px; }
+  .question-visual p { display: none; }
+  .flag-postcard { width: 52px; height: 36px; padding: 3px; }
+  .flag-postcard .country-flag { width: 42px; height: 30px; }
+  .feedback-card { min-height: 48px; margin-top: 7px; padding: 7px 10px; }
+  .feedback-card strong { font-size: 14px; }
+  .feedback-card small { font-size: 12px; }
+  .feedback-icon { width: 30px; height: 30px; flex-shrink: 0; }
+  .country-fact { margin-top: 5px; padding: 5px; }
+  .session-mini-stats { display: none; }
+  .hint-button { margin-top: 6px; font-size: 13px; }
+  .game-map-wrap { padding: 54px 6px 7px; }
+  .game-map-card { padding: 0; }
+  .exit-game, .map-toolbar { top: 6px; }
+  .exit-game { left: 8px; height: 44px; font-size: 12px; }
+  .map-toolbar { right: 8px; }
+  .progress-track { margin-top: 7px; }
+  .desktop-gesture { display: none; }
+  .mobile-gesture { display: inline; }
+}
+
 @media (max-width: 600px) {
+  .game-layout { height: calc(100dvh - 60px); }
   .game-map-card .map-scroll.is-continent-view {
     height: 100%;
   }
@@ -82,4 +128,15 @@
   .continent-view-badge ~ .micro-tip {
     top: 42px;
   }
+}
+
+@media (max-height: 500px) and (min-width: 601px) {
+  .game-layout { grid-template-columns: 260px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .question-panel { max-height: none; }
+  .micro-tip { display: none; }
+  .map-gesture-note { font-size: 10px; padding: 4px 7px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-country { animation: none !important; transition: none; }
 }
