@@ -26,8 +26,15 @@ for (const page of [desktop, mobile])
 async function start(page, continent = '유럽', all = false) {
   await page.goto(url);
   if (all) await page.getByRole('tab', { name: /초고수/ }).click();
-  await page.getByRole('button', { name: /대륙별 학습/ }).click();
-  await page.getByRole('button', { name: new RegExp(continent) }).click();
+  const panel = page
+    .locator('.scope-panel')
+    .filter({
+      has: page.getByLabel(
+        all ? '전 세계 도전 방식 선택' : '주요 나라 도전 방식 선택',
+      ),
+    });
+  await panel.getByRole('button', { name: /대륙별 학습/ }).click();
+  await panel.getByRole('button', { name: new RegExp(continent) }).click();
   await page.getByRole('button', { name: /탐험 시작하기/ }).click();
   await page.locator('.world-map').waitFor();
 }
@@ -140,15 +147,23 @@ try {
   );
   assert.match(await desktop.locator('.site-header').innerText(), /85/);
   await desktop.getByRole('button', { name: /다음 나라 찾기/ }).click();
+  await desktop.waitForFunction(
+    (expected) =>
+      document.querySelector('.map-toolbar span')?.textContent === expected,
+    userZoom,
+  );
   assert.equal(
     await desktop.locator('.map-toolbar span').innerText(),
     userZoom,
     'next question restores the user view after a hint',
   );
-  assert.ok(
-    await desktop
-      .locator('.flag-postcard img')
-      .evaluate((img) => img.complete && img.naturalWidth > 0),
+  await desktop.waitForFunction(
+    () => {
+      const img = document.querySelector('.flag-postcard img');
+      return img && img.complete && img.naturalWidth > 0;
+    },
+    undefined,
+    { timeout: 15000 },
   );
   console.log(
     'PASS desktop: cursor anchor, drag suppression, fit, hint scoring, next-question zoom, SVG flag',
